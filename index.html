@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Roster Management</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header><div><h1>Smart Roster Management</h1><p>DataStraw · Workforce planning and monthly scheduling</p></div></header>
+<main>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}<div class="messages">{% for category,message in messages %}<div class="message {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+{% endwith %}
+<section class="stats">
+<div class="stat"><span>Active employees</span><strong>{{ active_count }}</strong></div>
+<div class="stat"><span>Brands</span><strong>{{ total_brands }}</strong></div>
+<div class="stat"><span>Processes</span><strong>{{ total_processes }}</strong></div>
+<div class="stat"><span>Pods</span><strong>{{ total_pods }}</strong></div>
+<div class="stat"><span>Roster rows</span><strong>{{ roster|length }}</strong></div>
+</section>
+
+<section class="panel">
+<div class="panel-head"><div><h2>Monthly roster</h2><p>Generate a month, review staffing gaps, and make a validated manual change.</p></div></div>
+<form method="get" class="inline"><label>Roster month<input type="month" name="month" value="{{ month }}"></label><button>View month</button></form>
+<div class="actions">
+<form method="post" action="{{ url_for('generate_roster') }}" class="inline"><input type="hidden" name="month" value="{{ month }}"><button class="primary">Generate / Regenerate roster</button></form>
+<form method="post" action="{{ url_for('clear_roster') }}" class="inline"><input type="hidden" name="month" value="{{ month }}"><button class="danger" onclick="return confirm('Clear this month roster?')">Clear month</button></form>
+<form method="post" action="{{ url_for('load_demo') }}" class="inline"><button class="secondary">Load fictional demo data</button></form>
+</div>
+{% if roster %}
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Employee</th><th>Brand</th><th>Process</th><th>Status / note</th><th>Manual change</th></tr></thead><tbody>
+{% for row in roster %}
+<tr class="{{ 'gap' if row.status == 'GAP' else '' }}">
+<td>{{ row.work_date.strftime("%d %b %Y") }}</td>
+<td>{% if row.status == 'GAP' %}Unfilled{% else %}{{ row.employee.name }}{% endif %}</td>
+<td>{{ row.assignment.brand.name }}</td><td>{{ row.assignment.process.name }}</td>
+<td><b>{{ row.status }}</b> {{ row.note }}</td>
+<td>{% if row.status != 'GAP' %}<form method="post" action="{{ url_for('update_roster',entry_id=row.id) }}" class="inline"><select name="employee_id">{% for emp in employees if emp.active %}<option value="{{ emp.id }}" {% if emp.id==row.employee_id %}selected{% endif %}>{{ emp.name }}</option>{% endfor %}</select><button class="small">Update</button></form>{% else %}Assign after adding eligible staff{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}<p class="empty">No roster generated for {{ month }} yet.</p>{% endif %}
+</section>
+
+<section class="grid">
+<div class="panel"><h2>Employees</h2>
+<form method="post" action="{{ url_for('add_employee') }}" class="stack">
+<label>Full name<input name="name" required></label><label>Email<input type="email" name="email" required></label>
+<label>Pod<select name="pod_id"><option value="">No pod</option>{% for p in pods %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></label>
+<label>Weekly off<select name="weekly_off">{% for d in weekdays %}<option>{{ d }}</option>{% endfor %}</select></label><button>Add employee</button>
+</form>
+<div class="compact-list">{% for e in employees %}<div>{{ e.name }} <small>{{ e.email }} · {{ e.pod.name if e.pod else 'No pod' }} · Off: {{ e.weekly_off }}</small></div>{% else %}<p>No employees yet.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Brands</h2>
+<form method="post" action="{{ url_for('add_brand') }}" class="stack"><label>Brand name<input name="name" required></label><label>Operating note<input name="operating_note" placeholder="Optional calendar notes"></label><button>Add brand</button></form>
+<div class="compact-list">{% for b in brands %}<div>{{ b.name }} <small>{{ b.operating_note }}</small></div>{% else %}<p>No brands yet.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Processes</h2>
+<form method="post" action="{{ url_for('add_process') }}" class="stack"><label>Process name<input name="name" required></label><label>Description<input name="description"></label><button>Add process</button></form>
+<div class="compact-list">{% for p in processes %}<div>{{ p.name }} <small>{{ p.description }}</small></div>{% else %}<p>No processes yet.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Brand / process rules</h2>
+<form method="post" action="{{ url_for('add_brand_process') }}" class="stack">
+<label>Brand<select name="brand_id" required>{% for b in brands %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></label>
+<label>Process<select name="process_id" required>{% for p in processes %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></label>
+<label>Brand operating calendar<select name="working_rule">{% for r in rules %}<option>{{ r }}</option>{% endfor %}</select></label>
+<label>Minimum staff<input type="number" min="1" name="min_staff" value="1" required></label><button>Save rule</button></form>
+<div class="compact-list">{% for a in assignments %}<div>{{ a.brand.name }} · {{ a.process.name }}<small>{{ a.working_rule }} · Minimum {{ a.min_staff }} staff</small></div>{% else %}<p>No rules configured.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Employee eligibility</h2>
+<form method="post" action="{{ url_for('add_employee_assignment') }}" class="stack">
+<label>Employee<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select></label>
+<label>Brand / process<select name="brand_process_id" required>{% for a in assignments %}<option value="{{ a.id }}">{{ a.brand.name }} · {{ a.process.name }}</option>{% endfor %}</select></label><button>Assign employee</button></form>
+<div class="compact-list">{% for a in assignments %}<div>{{ a.brand.name }} · {{ a.process.name }}<small>Set eligible employees using the form above</small></div>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Holidays</h2>
+<form method="post" action="{{ url_for('add_holiday') }}" class="stack"><label>Date<input type="date" name="holiday_date" required></label><label>Holiday name<input name="name" required></label><button>Add holiday</button></form>
+<div class="compact-list">{% for h in holidays %}<div>{{ h.holiday_date.strftime("%d %b %Y") }}<small>{{ h.name }}</small></div>{% else %}<p>No holidays added.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Leave / planned absence</h2>
+<form method="post" action="{{ url_for('add_leave') }}" class="stack"><label>Employee<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select></label><label>Start date<input type="date" name="start_date" required></label><label>End date<input type="date" name="end_date" required></label><label>Type<select name="leave_type"><option>Leave</option><option>Comp-off</option></select></label><button>Add approved leave</button></form>
+<div class="compact-list">{% for l in leaves %}<div>{{ l.employee.name }}<small>{{ l.start_date }} to {{ l.end_date }} · {{ l.status }}</small></div>{% else %}<p>No leave records.</p>{% endfor %}</div>
+</div>
+
+<div class="panel"><h2>Approved comp-off</h2>
+<form method="post" action="{{ url_for('add_compoff') }}" class="stack"><label>Employee<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select></label><label>Comp-off date<input type="date" name="comp_date" required></label><button>Add comp-off</button></form>
+</div>
+</section>
+<footer>Smart Roster Management · Demo data is fictional. Review every flagged gap before publishing a roster.</footer>
+</main>
+</body></html>
